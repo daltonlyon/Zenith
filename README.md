@@ -12,6 +12,7 @@ Scans your PC, recommends only what fits your hardware, and makes every change r
 ![PowerShell 5.1](https://img.shields.io/badge/PowerShell-5.1-5391FE?logo=powershell&logoColor=white)
 ![No install](https://img.shields.io/badge/install-none-22C55E)
 ![Version 2.1.0](https://img.shields.io/badge/version-2.1.0-A855F7)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <img src="docs/screenshots/dashboard.png" alt="Zenith dashboard" width="900">
 
@@ -253,5 +254,9 @@ Run the tests with:
 ```
 powershell -ExecutionPolicy Bypass -File .\Test-Zenith.ps1
 ```
+
+## License
+
+Zenith is released under the [MIT License](LICENSE) - free to use, modify and share. It changes system settings, so it comes without warranty: every change is reversible, but use it at your own risk.
 
 <sub>Formerly FrameForge: on first launch Zenith copies FrameForge's backups from `C:\ProgramData\FrameForge`, so earlier tweaks can still be reverted.</sub>
