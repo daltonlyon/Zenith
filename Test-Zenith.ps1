@@ -9,6 +9,7 @@ function Check($ok, $what) { if ($ok) { "  ok    $what" } else { "  FAIL  $what"
 $errs = $null; [void][Management.Automation.Language.Parser]::ParseInput($src, [ref]$null, [ref]$errs)
 Check ($errs.Count -eq 0) "script parses ($($errs.Count) errors)"
 Check (-not ([IO.File]::ReadAllBytes($path) | Where-Object { $_ -gt 127 })) 'script is pure ASCII'
+Check ($src -notmatch '\$Window\.ShowDialog\(') 'main window is not modal (hiding it to the tray must not end the app)'
 
 # 2. XAML loads and every $ui.Name the code uses exists
 Add-Type -AssemblyName PresentationFramework
@@ -56,6 +57,18 @@ foreach ($case in @(
     Check ($wrong.Count -eq 0) "$($case.Name): power tweaks recommended correctly $(if ($wrong) { "(wrong: $($wrong -join ', '))" })"
 }
 
+# 4b. AMD support: ULPS targets exactly the Radeon adapter keys and only shows on an AMD-GPU PC; MSI mode shows for both vendors
+. $engine
+$cls = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'
+$radeonKeys = @(Get-ChildItem $cls -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^\d{4}$' } | Where-Object {
+    $p = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue; $p.ProviderName -match 'Advanced Micro Devices' -and $null -ne $p.EnableUlps }).Count
+$ulps = Get-Tweak 'gpu_amdulps'; $regs = @(Resolve-Reg $ulps)
+$script:SysInfo = [pscustomobject]@{ GpuVendor = 'AMD'; GpuInstanceId = 'PCI\FAKE' }
+$amdOk = (Test-OnlyOk $ulps) -and (Test-OnlyOk (Get-Tweak 'gpu_msi'))
+$script:SysInfo = [pscustomobject]@{ GpuVendor = 'NVIDIA'; GpuInstanceId = 'PCI\FAKE' }
+$nvOk = -not (Test-OnlyOk $ulps) -and (Test-OnlyOk (Get-Tweak 'gpu_msi'))
+Check ($amdOk -and $nvOk -and $regs.Count -eq $radeonKeys -and -not ($regs | Where-Object { $_.Name -ne 'EnableUlps' -or $_.Value -ne 0 })) "AMD tweaks: ULPS shown only for Radeon ($($regs.Count) adapter key(s) here), MSI mode for both vendors"
+
 # 5. temp cleaner: empties nested folders (read-only files too) but never follows a junction out of the folder
 . $engine
 $root = Join-Path $tmp 'clean'; $keep = Join-Path $tmp 'keep'
@@ -100,6 +113,8 @@ Check ($added -and $prio -eq 3 -and $gpu -eq 'AppStatus=0;GpuPreference=2;') "ga
 Check (-not (Add-GameEntry @{ Name = 'Game'; Exe = 'Game-Win64-Shipping.exe'; Path = $exe })) 'same game is not added twice'
 Remove-GameEntry 'Game-Win64-Shipping.exe'
 Check ((Get-RegValue $GPUPREF $exe).Value -eq 'AppStatus=0;' -and -not (Test-Path "$IFEO\Game-Win64-Shipping.exe") -and -not @(Get-GameList).Count) 'game removed: GPU value and priority restored exactly'
+$r = Invoke-WorkerJob @{ Kind = 'games'; Remove = @('nothing.exe') }
+Check (-not $r.Error -and -not @($r.Data.Added).Count -and -not @(Get-GameList).Count -and -not (Test-Path "$IFEO\PerfOptions")) 'a remove-only games job adds nothing (hashtable .Add is not a key)'
 Remove-Item $reg -Recurse -Force
 
 New-Item -ItemType Directory -Force "$tmp\ue\Game\Binaries\Win64", "$tmp\unity\Cool_Data" | Out-Null

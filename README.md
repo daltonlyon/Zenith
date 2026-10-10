@@ -31,7 +31,7 @@ Scans your PC, recommends only what fits your hardware, and makes every change r
 
 | | |
 |---|---|
-| **81 optimizations** | FPS & latency, GPU & display, power & CPU, scheduler, memory & storage, network, debloat, privacy and quality-of-life tweaks. Hover any card to see exactly which registry keys, services, power settings or tasks it changes. |
+| **85 optimizations** | FPS & latency, GPU & display, power & CPU, scheduler, memory & storage, network, debloat, privacy and quality-of-life tweaks. Hover any card to see exactly which registry keys, services, power settings or tasks it changes. |
 | **Health check** | Flags XMP/EXPO off, a monitor below its max refresh rate, the main monitor plugged into the motherboard, Resizable BAR off (RTX 30+), single-channel RAM, an old GPU driver, a pending Windows restart, overlay/RGB apps fighting each other and background apps eating CPU. |
 | **Game Session** | One click - or automatically when a game starts - closes background apps, pauses Windows Update and turns on Do Not Disturb. Ending it puts everything back. |
 | **Tray while gaming** | When a game from your list starts, Zenith hides in the system tray: no window, no animations, no GPU use. |
@@ -91,7 +91,8 @@ Optional: right-click `Launch Zenith.bat` > **Send to** > **Desktop (create shor
 
 - **Laptops:** power-hungry tweaks aren't recommended, and power tweaks only change the plugged-in setting, so battery behaviour stays the same.
 - **AMD Ryzen:** the power-plan and core-parking tweaks aren't recommended, since AMD recommends the Balanced plan and Ryzen picks its fastest cores itself.
-- **Graphics:** the control-panel guide matches the card (NVIDIA Control Panel or AMD Adrenalin), and NVIDIA-only tweaks only appear on NVIDIA.
+- **NVIDIA:** NVIDIA Control Panel guide, NVIDIA telemetry off, MSI mode, live GPU load / temperature / VRAM via `nvidia-smi`.
+- **AMD Radeon:** Adrenalin guide (Anti-Lag, Smart Access Memory, Instant Replay...), AMD telemetry off, optional Radeon Software / ReLive startup trimming, ULPS off, MSI mode, live GPU load and VRAM via Windows' own GPU counters. Intel graphics get the counters too.
 - **Storage and RAM:** SysMain is only recommended with Windows on an SSD; memory-related tweaks consider the installed RAM.
 
 Each PC keeps its own backup and log in its own `C:\ProgramData\Zenith`, so reverting on one PC never touches another.
@@ -100,7 +101,7 @@ Each PC keeps its own backup and log in its own `C:\ProgramData\Zenith`, so reve
 
 No software makes a graphics card faster. Zenith removes Windows overhead, background activity and input latency, which shows up as smoother frame times, fewer stutters and better 1% lows. The biggest gains usually come from the fixes the Health check points out, from the in-game settings on the Boost Up page, and - on older CPUs - from the Advanced tweaks. Use the FPS test to measure your own results.
 
-## All 81 optimizations
+## All 85 optimizations
 
 <details>
 <summary>Show the full list</summary>
@@ -130,10 +131,14 @@ No software makes a graphics card faster. Zenith removes Windows overhead, backg
 | Hardware-Accelerated GPU Scheduling | Yes | Reboot |
 | Disable Multiplane Overlay (MPO) | Yes | Reboot |
 | Optimizations for Windowed Games | Yes | Win11 |
-| Enable MSI Mode for NVIDIA GPU |  | Reboot |
+| Enable MSI Mode for the Graphics Card |  | Reboot |
 | Disable Transparency Effects | Yes |  |
 | Visual Effects: Best Performance | Yes | Sign-out |
 | Disable NVIDIA Telemetry | Yes |  |
+| Disable AMD Telemetry | Yes |  |
+| Don't Start Radeon Software with Windows |  | Feature Breaking |
+| Stop AMD ReLive Recorder at Startup |  | Feature Breaking |
+| Disable ULPS (AMD Ultra Low Power State) |  | Power Hungry, Reboot |
 | Stop Windows Update Replacing Drivers | Yes |  |
 
 **Power & CPU**

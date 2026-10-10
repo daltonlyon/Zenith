@@ -198,7 +198,8 @@ function Test-OnlyOk($t) {
     switch ($t.Only) {
         'Win11'  { return ($script:SysInfo.Build -ge 22000) }
         'Win10'  { return ($script:SysInfo.Build -lt 22000) }
-        'NVIDIA' { return [bool]$script:SysInfo.GpuInstanceId }
+        'GPU'    { return [bool]$script:SysInfo.GpuInstanceId }       # an NVIDIA or AMD graphics card was found
+        'AMD'    { return ($script:SysInfo.GpuVendor -eq 'AMD') }      # the main GPU is a Radeon
     }
     return $true
 }
@@ -487,15 +488,15 @@ Add-Tweak @{ Id='gpu_hags'; Cat='GPU & Display'; Name='Hardware-Accelerated GPU 
     Reg=@( (RegV 'HKLM:\SYSTEM\CurrentControlSet\Control\GraphicsDrivers' 'HwSchMode' 'DWord' 2 1) ) }
 
 Add-Tweak @{ Id='gpu_mpo'; Cat='GPU & Display'; Name='Disable Multiplane Overlay (MPO)'; Impact='Medium'; Rec=$true; Tags=@('Reboot')
-    Desc='MPO is a known cause of flickering, black screens and stutter on NVIDIA cards in borderless/windowed games. NVIDIA itself has published this fix. Safe to undo.'
+    Desc='MPO is a known cause of flickering, black screens and stutter on NVIDIA and AMD cards in borderless/windowed games. NVIDIA itself has published this fix. Safe to undo.'
     Reg=@( (RegV 'HKLM:\SOFTWARE\Microsoft\Windows\Dwm' 'OverlayTestMode' 'DWord' 5 $null) ) }
 
 Add-Tweak @{ Id='gpu_winopt'; Cat='GPU & Display'; Name='Optimizations for Windowed Games'; Impact='Medium'; Rec=$true; Only='Win11'; Tags=@('Win11')
     Desc='Upgrades older DirectX 10/11 games running in borderless or windowed mode to the modern flip presentation model - lower latency, close to exclusive fullscreen.'
     Reg=@( (RegV 'HKCU:\Software\Microsoft\DirectX\UserGpuPreferences' 'DirectXUserGlobalSettings' 'String' 'SwapEffectUpgradeEnable=1;' $null) ) }
 
-Add-Tweak @{ Id='gpu_msi'; Cat='GPU & Display'; Name='Enable MSI Mode for NVIDIA GPU'; Impact='Low'; Rec=$false; Risk='Moderate'; Only='NVIDIA'; Tags=@('Reboot')
-    Desc='Switches the graphics card from legacy line-based interrupts to Message Signaled Interrupts, which lowers interrupt latency and avoids IRQ sharing. GeForce cards from the GTX 10-series on support it (newer RTX cards often use it already). Re-apply after a clean driver install.'
+Add-Tweak @{ Id='gpu_msi'; Cat='GPU & Display'; Name='Enable MSI Mode for the Graphics Card'; Impact='Low'; Rec=$false; Risk='Moderate'; Only='GPU'; Tags=@('Reboot')
+    Desc='Switches the graphics card from legacy line-based interrupts to Message Signaled Interrupts, which lowers interrupt latency and avoids IRQ sharing. GeForce GTX 10-series and newer support it; Radeon cards and newer RTX cards usually use it already (then this shows as active). Re-apply after a clean driver install.'
     RegFn={ if ($script:SysInfo.GpuInstanceId) { RegV "HKLM:\SYSTEM\CurrentControlSet\Enum\$($script:SysInfo.GpuInstanceId)\Device Parameters\Interrupt Management\MessageSignaledInterruptProperties" 'MSISupported' 'DWord' 1 0 } } }
 
 Add-Tweak @{ Id='gpu_transparency'; Cat='GPU & Display'; Name='Disable Transparency Effects'; Impact='Medium'; Rec=$true
@@ -517,8 +518,31 @@ Add-Tweak @{ Id='gpu_nvtelemetry'; Cat='GPU & Display'; Name='Disable NVIDIA Tel
     Svc=@( (SvcV 'NvTelemetryContainer' 'disabled' 'auto') )
     Tasks=@('\NvTmRep*', '\NvTmMon*') }
 
+# AMD: service, task and value names as AMD's driver / Adrenalin installs them. Each one shows "Not needed" where it is absent.
+Add-Tweak @{ Id='gpu_amdtelemetry'; Cat='GPU & Display'; Name='Disable AMD Telemetry'; Impact='Low'; Rec=$true
+    Desc='Stops the AMD User Experience Program: its data-uploader service and the startup entry that collects usage data. The driver, Radeon Software and your game profiles keep working normally.'
+    Svc=@( (SvcV 'AUEPLauncher' 'disabled' 'auto') )
+    RegFn={ if ((Get-RegValue 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' 'StartAUEP').Exists) { RegV "HKLM:\$SA\Run" 'StartAUEP' 'Binary' @(3,0,0,0,0,0,0,0,0,0,0,0) $null } } }   # = Task Manager "Disabled"
+
+Add-Tweak @{ Id='gpu_amdcn'; Cat='GPU & Display'; Name="Don't Start Radeon Software with Windows"; Impact='Low'; Rec=$false; Tags=@('Feature Breaking')
+    Desc='Radeon Software (Adrenalin) launches at every sign-in and stays in the background. Your driver settings still apply without it - only its overlay, hotkeys and Instant Replay wait until you open it yourself. Saves RAM and a little CPU.'
+    Tasks=@('\StartCN', '\StartCNBM') }
+
+Add-Tweak @{ Id='gpu_amddvr'; Cat='GPU & Display'; Name='Stop AMD ReLive Recorder at Startup'; Impact='Low'; Rec=$false; Tags=@('Feature Breaking')
+    Desc='Stops the AMD ReLive recording service from starting with Windows. Use this if you do not record or stream with Radeon Software - Medal, OBS or Steam can record instead.'
+    Tasks=@('\StartDVR') }
+
+Add-Tweak @{ Id='gpu_amdulps'; Cat='GPU & Display'; Name='Disable ULPS (AMD Ultra Low Power State)'; Impact='Low'; Rec=$false; Risk='Moderate'; Only='AMD'; Tags=@('Power Hungry', 'Reboot')
+    Desc='ULPS puts an idle Radeon card into a deep sleep state; waking from it is a known cause of stutter, black screens and slow wake-ups, especially with two cards. Disabling it keeps the card responsive at the cost of slightly higher idle power.'
+    RegFn={
+        $cls = 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}'
+        Get-ChildItem -LiteralPath $cls -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^\d{4}$' } | ForEach-Object {
+            $p = Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue
+            if ($p.ProviderName -match 'Advanced Micro Devices' -and $null -ne $p.EnableUlps) { RegV "$cls\$($_.PSChildName)" 'EnableUlps' 'DWord' 0 1 }
+        } } }
+
 Add-Tweak @{ Id='gpu_wudrivers'; Cat='GPU & Display'; Name='Stop Windows Update Replacing Drivers'; Impact='Low'; Rec=$true
-    Desc='Prevents Windows Update from silently swapping your NVIDIA driver for an older generic one (a common cause of sudden FPS drops). Update the GPU driver from nvidia.com instead.'
+    Desc='Prevents Windows Update from silently swapping your NVIDIA or AMD driver for an older generic one (a common cause of sudden FPS drops). Update the GPU driver from nvidia.com or amd.com instead.'
     Reg=@( (RegV 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate' 'ExcludeWUDriversInQualityUpdate' 'DWord' 1 $null) ) }
 
 # ---------------------------------------------------------------- REGISTRY (scheduler / kernel)
@@ -925,7 +949,7 @@ function Get-SystemInfo {
     $i.Refresh = if ($gpu) { $gpu.CurrentRefreshRate } else { $null }
     $i.GpuInstanceId = $null
     try {
-        $pnp = Get-PnpDevice -Class Display -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -match 'NVIDIA' } | Select-Object -First 1
+        $pnp = if ($i.GpuVendor -in 'NVIDIA', 'AMD') { Get-PnpDevice -Class Display -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.FriendlyName -eq $i.GpuName } | Select-Object -First 1 }
         if ($pnp) { $i.GpuInstanceId = $pnp.InstanceId }
     } catch {}
     # Board maker from the PCI subsystem vendor id (SUBSYS_xxxxVVVV), e.g. 1043 = ASUS - makes part searches exact.
@@ -1374,9 +1398,9 @@ function Invoke-WorkerJob([hashtable]$Job) {
             'explorer' { Restart-Explorer }
             'startup' { Set-StartupApp $Job.Approved $Job.ValueName $Job.Enable; $r.Data = @(Get-StartupApps) }
             'games'   {
-                $cands = if ($Job.Detect) { Set-JobStatus 'Looking for installed games'; @(Find-InstalledGames) } else { @($Job.Add | Where-Object { $_ }) }
+                $cands = if ($Job.Detect) { Set-JobStatus 'Looking for installed games'; @(Find-InstalledGames) } else { @($Job['Add'] | Where-Object { $_ }) }   # ['Add'], not .Add: a missing key would return Hashtable.Add()
                 $added = @(foreach ($g in $cands) { if (Add-GameEntry $g) { $g.Name } })
-                foreach ($x in @($Job.Remove | Where-Object { $_ })) { Remove-GameEntry $x }
+                foreach ($x in @($Job['Remove'] | Where-Object { $_ })) { Remove-GameEntry $x }
                 $r.Data = @{ Added = $added; Found = $cands.Count; List = @(Get-GameList) }
             }
             'session' { $r.Data = if ($Job.On) { Start-GameSession } else { Stop-GameSession } }
@@ -2736,8 +2760,8 @@ function Complete-Job($r) {
             $added = @($d.Added)
             if ($job.Detect) {
                 Show-Toast $(if ($added.Count) { "Found $($d.Found) games - added $($added.Count) new: $(($added | Select-Object -First 4) -join ', ')$(if ($added.Count -gt 4) { ', ...' })." } else { "Found $($d.Found) games - all already in your list." })
-            } elseif ($added.Count) { Show-Toast "$($added[0]) added - High priority$(if ($job.Add[0].Path) { ' and dedicated GPU' })." }
-            elseif (@($job.Remove).Count -and -not $r.Error) { Show-Toast "$(@($job.Remove)[0]) removed - priority and GPU setting restored." 'info' }
+            } elseif ($added.Count) { Show-Toast "$($added[0]) added - High priority$(if (@($job['Add'])[0].Path) { ' and dedicated GPU' })." }
+            elseif (@($job['Remove'] | Where-Object { $_ }).Count -and -not $r.Error) { Show-Toast "$(@($job['Remove'])[0]) removed - priority and GPU setting restored." 'info' }
         }
         'session' {
             $script:SessionBusy = $false
@@ -3352,7 +3376,10 @@ $GpuGuides = @{
             @('Frame Rate Target Control', 'Disabled  (cap FPS in-game instead)'),
             @('Texture Filtering Quality', 'Performance'),
             @('Tessellation Mode', 'AMD Optimized'),
-            @('AMD FreeSync (Display tab)', 'Enabled if your monitor supports it'))
+            @('AMD FreeSync (Display tab)', 'Enabled if your monitor supports it'),
+            @('Smart Access Memory (Performance > Tuning)', 'Enabled (needs Above 4G + Re-Size BAR in BIOS)'),
+            @('Instant Replay (Record & Stream)', 'Off unless you use it'),
+            @('In-game overlay (Preferences)', 'Off unless you use it'))
     }
 }
 
@@ -3679,10 +3706,18 @@ $LiveLoop = {
                 $Live.RamPct = [double][math]::Round(100 * (1 - $os.FreePhysicalMemory / $os.TotalVisibleMemorySize))
                 $Live.RamGb = ($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / 1MB
             } catch {}
-            if ($smi -and ($tick % 2 -eq 1)) {
+            if ($tick % 2 -eq 1) {
                 try {
-                    $p = "$(& $smi --query-gpu=utilization.gpu,temperature.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1)" -split ',\s*'
-                    if ($p.Count -ge 4) { $Live.Gpu = $p }
+                    if ($smi) {
+                        $p = "$(& $smi --query-gpu=utilization.gpu,temperature.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1)" -split ',\s*'
+                        if ($p.Count -ge 4) { $Live.Gpu = $p }
+                    } else {
+                        # AMD / Intel: Windows' own GPU counters. The card holding the most dedicated memory is the one games run on.
+                        $mem = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory -ErrorAction Stop | Sort-Object DedicatedUsage -Descending | Select-Object -First 1
+                        $busy = (Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine -ErrorAction Stop |
+                                 Where-Object { $_.Name -like "*$($mem.Name)_eng_*engtype_3D" } | Measure-Object UtilizationPercentage -Sum).Sum
+                        $Live.Gpu = @([math]::Min(100, [int]$busy), $null, [math]::Round($mem.DedicatedUsage / 1MB), $null)   # no temperature / total via counters
+                    }
                 } catch {}
             }
             if ($tick % 5 -eq 1) { $Live.Procs = @(Get-Process).Count }
@@ -3723,8 +3758,9 @@ $script:StatsTimer.Add_Tick({
     if ($null -ne $L.RamPct) { Start-Anim $ui.RamBar $vp $null $L.RamPct 450; $ui.RamPct.Text = ('{0:N1} GB  ({1}%)' -f $L.RamGb, $L.RamPct) }
     if ($L.Gpu) {
         $p = $L.Gpu; Start-Anim $ui.GpuBar $vp $null ([double]$p[0]) 450
-        $ui.GpuPct.Text = "$($p[0])%  $([char]0x00B7)  $($p[1]) $([char]0x00B0)C  $([char]0x00B7)  VRAM $($p[2]) / $($p[3]) MB"
-    } elseif ($L.HasSmi -eq $false) { $ui.GpuPct.Text = 'n/a (NVIDIA driver tools not found)' }
+        $dot = "  $([char]0x00B7)  "
+        $ui.GpuPct.Text = "$($p[0])%" + $(if ($p[1]) { "$dot$($p[1]) $([char]0x00B0)C" } else { '' }) + "${dot}VRAM $($p[2])" + $(if ($p[3]) { " / $($p[3])" } else { '' }) + ' MB'
+    } elseif ($L.HasSmi -eq $false -and $L.Stamp -gt 2) { $ui.GpuPct.Text = 'n/a' }
     if ($L.Procs) { $ui.StatProcs.Text = "$($L.Procs)" }
 })
 
@@ -3875,4 +3911,8 @@ try {
     if ($Window.Width -gt $wa.Width)   { $Window.MinWidth = [math]::Min($Window.MinWidth, $wa.Width - 10);   $Window.Width = $wa.Width - 10 }
 } catch {}
 
-[void]$Window.ShowDialog()
+# Show() + a dispatcher loop, not ShowDialog(): hiding a ShowDialog window ends its loop, which ended Zenith
+# every time it hid in the tray. This loop runs until the window is really closed.
+$Window.Add_Closed({ [System.Windows.Threading.Dispatcher]::CurrentDispatcher.InvokeShutdown() })
+$Window.Show()
+[System.Windows.Threading.Dispatcher]::Run()
